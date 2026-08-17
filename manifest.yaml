@@ -27,6 +27,8 @@ plugins:
   - provider/tcpr.yaml
 meta:
   version: 0.0.2
+  repo: https://github.com/lyts825/tcpr-dify-plugin
+  contact: https://github.com/lyts825/tcpr-dify-plugin/issues
   arch:
   - amd64
   - arm64
