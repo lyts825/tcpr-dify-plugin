@@ -47,9 +47,9 @@ python -m venv .venv
 .\.venv\Scripts\python -B -c "from verify_plugin import verify_runtime_contracts; verify_runtime_contracts(); print('RUNTIME_CONTRACTS_OK')"
 ```
 
-The full verification script additionally requires the user-provided production
-workbook `生产环境上架产品基础数据.xlsx`; that data is intentionally not
-included in the repository or plugin package.
+The full verification script additionally requires a user-provided production
+workbook; that data is intentionally not included in the repository or plugin
+package.
 
 To create a distributable package, run the official Dify Plugin CLI from the
 directory above this project:
