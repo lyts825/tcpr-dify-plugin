@@ -1,0 +1,36 @@
+identity:
+  name: import_products
+  author: lyts825
+  label:
+    en_US: Import Products
+    zh_Hans: 导入生产产品
+description:
+  human:
+    en_US: Import and validate an XLSX or CSV product file into a new TCPR generation.
+    zh_Hans: 校验 XLSX/CSV 产品文件并导入新的 TCPR generation。
+  llm: Import a complete production product file. The active pointer changes only after validation and indexing succeed.
+parameters:
+- name: file
+  type: file
+  required: true
+  label:
+    en_US: Product file
+    zh_Hans: 产品文件
+  human_description:
+    en_US: XLSX or CSV with the exact 14 production columns.
+    zh_Hans: 包含真实 14 列表头的 XLSX 或 CSV。
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    generation_id: {type: string}
+    record_count: {type: number}
+    warning_count: {type: number}
+    warnings_json: {type: string}
+    headers_json: {type: string}
+    source_columns: {type: number}
+extra:
+  python:
+    source: tools/import_products.py

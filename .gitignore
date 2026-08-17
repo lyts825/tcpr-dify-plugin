@@ -1,0 +1,20 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+.env.*
+
+# Dify build artifacts and local input data
+*.difypkg
+*.difypkg.sha256
+*.xlsx
+*.xls
+*.csv
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,21 @@
+identity:
+  author: lyts825
+  name: tcpr
+  label:
+    en_US: TCPR
+    zh_Hans: TCPR 精确属性检索
+  description:
+    en_US: Typed constraint-preserving retrieval for production products
+    zh_Hans: 面向生产产品的类型约束保持检索
+  icon: tcpr.svg
+  tags:
+  - business
+  - search
+tools:
+- tools/tcpr_search.yaml
+- tools/import_products.yaml
+- tools/rebuild_index.yaml
+- tools/get_schema.yaml
+extra:
+  python:
+    source: provider/tcpr.py

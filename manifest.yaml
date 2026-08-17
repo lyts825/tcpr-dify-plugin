@@ -1,0 +1,38 @@
+version: 0.0.1
+type: plugin
+author: lyts825
+name: tcpr
+label:
+  en_US: TCPR
+  zh_Hans: TCPR 精确属性检索
+description:
+  en_US: Typed constraint-preserving retrieval for production products
+  zh_Hans: 面向生产产品的类型约束保持检索插件
+created_at: '2026-08-14T00:00:00Z'
+icon: tcpr.svg
+resource:
+  memory: 268435456
+  permission:
+    tool:
+      enabled: true
+    storage:
+      enabled: true
+      size: 268435456
+    app:
+      enabled: false
+    endpoint:
+      enabled: false
+plugins:
+  tools:
+  - provider/tcpr.yaml
+meta:
+  version: 0.0.2
+  arch:
+  - amd64
+  - arm64
+  runner:
+    language: python
+    version: '3.12'
+    entrypoint: main
+  minimum_dify_version: 1.14.2
+privacy: ./PRIVACY.md

@@ -1,0 +1,49 @@
+identity:
+  name: search
+  author: lyts825
+  label:
+    en_US: TCPR Search
+    zh_Hans: TCPR 精确检索
+description:
+  human:
+    en_US: Search the active production product generation with typed hard and soft constraints.
+    zh_Hans: 使用类型化 Hard/Soft 约束检索当前生产产品 generation。
+  llm: Search only the active TCPR generation; Hard results come from TCPR candidates and missing storage is not success.
+parameters:
+- name: normalized_constraints_json
+  type: string
+  required: true
+  label:
+    en_US: Normalized constraints JSON
+    zh_Hans: 规范化约束 JSON
+  human_description:
+    en_US: Strict TCPR IR JSON produced by the workflow normalizer.
+    zh_Hans: 工作流规范化节点产生的严格 TCPR IR JSON。
+  llm_description: Do not invent attributes or units; pass the normalized constraints JSON.
+  form: llm
+- name: top_k
+  type: number
+  required: false
+  default: 20
+  min: 1
+  max: 100
+  label:
+    en_US: Top K
+    zh_Hans: 最大结果数
+  human_description:
+    en_US: Maximum number of TCPR candidates to return after hard-constraint filtering.
+    zh_Hans: 硬约束过滤后最多返回的 TCPR 候选数量。
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    candidate_ids_json: {type: string}
+    candidates_json: {type: string}
+    soft_constraints_json: {type: string}
+    debug_json: {type: string}
+    kb_query: {type: string}
+extra:
+  python:
+    source: tools/tcpr_search.py
