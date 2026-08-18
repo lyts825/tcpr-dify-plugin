@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 .env.*
+.git/
 
 # Dify build artifacts and local input data
 *.difypkg
@@ -13,6 +14,10 @@ venv/
 *.xlsx
 *.xls
 *.csv
+*.jsonl
+tests/.pytest_cache/
+dist/
+.tools/
 
 # Local editor and OS files
 .vscode/

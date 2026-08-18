@@ -1,0 +1,50 @@
+identity:
+  name: search
+  author: lyts825
+  label:
+    en_US: TCPR Search
+    zh_Hans: TCPR 精确检索
+description:
+  human:
+    en_US: Search a persisted index and database with typed hard and soft constraints.
+    zh_Hans: 使用类型化 Hard/Soft 约束搜索持久化索引和数据库。
+  llm: Pass JSON query plus the exact index_id and database_id; no temporary rebuild is performed.
+parameters:
+- name: query_json
+  type: string
+  required: true
+  label:
+    en_US: Query JSON
+    zh_Hans: 查询 JSON
+  human_description:
+    en_US: JSON containing hard and/or soft constraints with AND/OR/NOT.
+    zh_Hans: 包含 hard/soft 约束及 AND/OR/NOT 的 JSON。
+  form: llm
+- name: index_id
+  type: string
+  required: true
+  label:
+    en_US: Index ID
+    zh_Hans: 索引 ID
+  form: form
+- name: database_id
+  type: string
+  required: true
+  label:
+    en_US: Database ID
+    zh_Hans: 数据库 ID
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    index_id: {type: string}
+    database_id: {type: string}
+    count: {type: number}
+    results: {type: array}
+    debug: {type: object}
+    error: {type: object}
+extra:
+  python:
+    source: tools/search.py

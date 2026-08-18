@@ -3,19 +3,44 @@
 本模块定义 TcprService 类，是整个 TCPR（Typed Constraint-Preserving
 Retrieval，类型化约束保持检索）插件对外的核心服务入口：它协调 ingest
 （表格读取与规范化）、engine（索引构建与检索）、schema（模式与约束
-规范化）和 storage（代际快照持久化）四个子模块，向上层工具提供
-import_products（导入商品）、rebuild_index（重建索引）、get_schema
-（获取模式）与 search（按约束检索）四项能力。
+规范化）和 storage（代际快照持久化）四个子模块，向三个公开工具提供
+索引构建、数据库构建与按约束检索能力。
 """
 from __future__ import annotations
 
 import json
+import math
+import re
 from typing import Any
 
 from .engine import Product, build_index_payload, search_products
 from .ingest import normalize_product_rows, read_product_rows
 from .schema import SOURCE_COLUMNS, normalize_constraint_doc, schema_payload
 from .storage import GenerationStore, InMemoryStorage, StorageAdapter, StorageNotConfigured
+
+# The plugin adapter delegates the public operations to the bundled core.
+from .shared_core import CoreService as SharedCoreService
+
+
+def normalize_top_k(value: Any) -> int:
+    """Validate the public Top K contract instead of silently clamping it."""
+    if value is None or value == "":
+        return 20
+    if isinstance(value, bool):
+        raise ValueError("top_k must be an integer from 1 to 100")
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError("top_k must be an integer from 1 to 100")
+        result = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        result = int(value.strip())
+    else:
+        raise ValueError("top_k must be an integer from 1 to 100")
+    if not 1 <= result <= 100:
+        raise ValueError("top_k must be an integer from 1 to 100")
+    return result
 
 
 class TcprService:
@@ -36,6 +61,7 @@ class TcprService:
                 本方法本身不触发任何 IO，仅包装出 GenerationStore。
         """
         self.store = GenerationStore(storage)
+        self.shared = SharedCoreService(storage)
 
     @staticmethod
     def _products(records: list[dict[str, Any]]) -> list[Product]:
@@ -169,7 +195,9 @@ class TcprService:
         })
         return payload
 
-    def search(self, normalized_constraints_json: str | dict[str, Any], top_k: Any = 20) -> dict[str, Any]:
+    def search(self, normalized_constraints_json: str | dict[str, Any] | None = None, top_k: Any = 20,
+               database_id: str | None = None, *, query_json: str | dict[str, Any] | None = None,
+               index_id: str | None = None) -> dict[str, Any]:
         """按规范化约束检索商品。
 
         约束是带类型的属性谓词（如等值、范围），检索全程保持类型与
@@ -181,8 +209,8 @@ class TcprService:
             normalized_constraints_json: 规范化约束文档；可以是已解析的
                 dict，也可以是 JSON 字符串（空字符串视为空文档，由
                 normalize_constraint_doc 兜底）。
-            top_k: 期望返回的候选数量，默认 20；内部会被钳制到
-                [1, 100] 区间，防止 0、负数或超大值。
+            top_k: 期望返回的候选数量，默认 20；必须是 [1, 100]
+                范围内的整数，越界或非整数输入会返回 ERROR。
 
         Returns:
             检索结果字典，包含状态码、候选 ID、候选详情、软约束回显、
@@ -194,6 +222,16 @@ class TcprService:
             KeyError、JSONDecodeError）与存储未配置（StorageNotConfigured）
             均在内部捕获并转换为 ERROR / CONFIG_REQUIRED 状态响应。
         """
+        # New public contract: search(query_json, index_id, database_id), also
+        # accepted by keyword as search(query_json=..., index_id=...).
+        # Keep the two-argument legacy form below solely for old local
+        # verification helpers; provider YAML never exposes that entry point.
+        if query_json is not None:
+            normalized_constraints_json = query_json
+        if index_id is not None:
+            top_k = index_id
+        if database_id is not None:
+            return self.shared.search(normalized_constraints_json, str(top_k), database_id)
         try:
             # 第一步先确定当前代际；存储未配置会在此处直接失败
             active = self.store.current_generation()
@@ -203,6 +241,7 @@ class TcprService:
             return self._search_status("NOT_READY", "no active generation; import_products is required")
         try:
             snapshot = self.store.load_generation(active)
+            top_k_value = normalize_top_k(top_k)
             # dict 直接使用；字符串走 JSON 解析；空串回退为空字符串，
             # 避免 json.loads("") 抛出 JSONDecodeError
             raw_doc = (
@@ -217,9 +256,7 @@ class TcprService:
             result = search_products(
                 self._products(snapshot["products"]),
                 doc,
-                # top_k 钳制到 [1, 100]：下限保证至少返回一个候选，
-                # 上限防止单次响应数据量失控
-                max(1, min(int(top_k or 20), 100)),
+                top_k_value,
             )
             return {
                 "status": result["status"],
@@ -240,6 +277,12 @@ class TcprService:
         # load_generation 阶段才暴露的存储未配置错误，单独返回 CONFIG_REQUIRED
         except StorageNotConfigured as exc:
             return self._search_status("CONFIG_REQUIRED", str(exc), active)
+
+    def build_index(self, file: Any) -> str:
+        return self.shared.build_index(file)
+
+    def build_database(self, file: Any, index_id: str) -> str:
+        return self.shared.build_database(file, index_id)
 
     @staticmethod
     def _kb_query(doc: dict[str, Any], candidate_ids: list[str]) -> str:

@@ -12,10 +12,9 @@ identity:
   - business
   - search
 tools:
-- tools/tcpr_search.yaml
-- tools/import_products.yaml
-- tools/rebuild_index.yaml
-- tools/get_schema.yaml
+- tools/search.yaml
+- tools/build_index.yaml
+- tools/build_database.yaml
 extra:
   python:
     source: provider/tcpr.py

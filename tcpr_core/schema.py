@@ -210,6 +210,17 @@ def normalize_constraint_doc(doc: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(doc, dict):
         raise ValueError("constraint document must be object")
+    allowed_top_level = {"hard", "soft", "unparsed"}
+    unknown_top_level = set(doc) - allowed_top_level
+    if unknown_top_level:
+        raise ValueError("unknown constraint document fields: " + ", ".join(sorted(unknown_top_level)))
+    hard = doc.get("hard", [])
+    soft = doc.get("soft", [])
+    unparsed = doc.get("unparsed", [])
+    if not isinstance(hard, list) or not isinstance(soft, list) or not isinstance(unparsed, list):
+        raise ValueError("hard, soft and unparsed must be arrays")
+    if not hard and not soft:
+        raise ValueError("at least one hard or soft constraint is required")
 
     def atom(item: dict[str, Any]) -> dict[str, Any]:
         """规范化单个约束节点（递归处理逻辑组合节点的子节点）。
@@ -230,7 +241,8 @@ def normalize_constraint_doc(doc: dict[str, Any]) -> dict[str, Any]:
         if op in {"AND", "OR", "NOT"}:
             # 逻辑组合节点：递归规范化 children；NOT 是单目运算，只允许 1 个子节点。
             children = item.get("children")
-            if not isinstance(children, list) or (op == "NOT" and len(children) != 1):
+            if (not isinstance(children, list) or not children or
+                    (op == "NOT" and len(children) != 1)):
                 raise ValueError(op + " children invalid")
             return {"op": op, "children": [atom(child) for child in children]}
         if op not in KNOWN_OPS:
@@ -241,24 +253,28 @@ def normalize_constraint_doc(doc: dict[str, Any]) -> dict[str, Any]:
         value = item.get("value", item.get("values"))
         result = {"attr": attr, "op": op}
         if op != "EXISTS":
+            if value is None:
+                raise ValueError(attr + " missing value")
             # EXISTS 只判断字段是否存在，不携带值。
             if op in {"IN", "NOT_IN", "SUPERSET"}:
                 # 列表型操作符要求值是列表，并逐元素按字段类型规范化。
-                if not isinstance(value, list):
-                    raise ValueError(op + " requires list")
+                if not isinstance(value, list) or not value:
+                    raise ValueError(op + " requires a non-empty list")
                 result["value"] = [normalize_value(attr, x) for x in value]
             else:
                 # 标量型操作符（EQ/NEQ/RANGE/GE/LE/CONTAINS）直接规范化单个值。
                 result["value"] = normalize_value(attr, value)
             if op == "RANGE":
                 # RANGE 是双边界操作符，额外规范化上界 value2。
+                if item.get("value2") is None:
+                    raise ValueError("RANGE requires value2")
                 result["value2"] = normalize_value(attr, item.get("value2"))
         return result
 
     return {
-        "hard": [atom(x) for x in doc.get("hard", [])],
-        "soft": [atom(x) for x in doc.get("soft", [])],
-        "unparsed": list(doc.get("unparsed", [])),
+        "hard": [atom(x) for x in hard],
+        "soft": [atom(x) for x in soft],
+        "unparsed": list(unparsed),
     }
 
 

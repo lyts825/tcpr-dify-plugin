@@ -7,7 +7,7 @@ does not install or emulate the daemon; it imports the fallback adapter instead.
 即"类型约束保持检索"）的入口文件：manifest.yaml 中 runner.entrypoint 指向的
 正是本文件的 main 函数。真实的 Dify 运行时（daemon）会注入 dify_plugin SDK；
 本地验证环境刻意不安装、也不模拟该 daemon，而是走 fallback 适配层
-（dify_plugins.tcpr 包内的可选适配模块与 InMemoryStorage 测试替身），
+（插件内置的可选适配模块与 InMemoryStorage 测试替身），
 保证本地可测试，但绝不伪装成已安装 SDK。
 """
 
@@ -48,8 +48,7 @@ def main() -> None:
         raise RuntimeError(
             "dify_plugin SDK is not installed; use the in-memory test double for local verification"
         )
-    # 实例化插件并进入其事件循环；search、import_products、
-    # rebuild_index、get_schema 四个工具的实际分发由 provider 层接管。
+    # 实例化插件并进入其事件循环；三个公开工具的实际分发由 provider 层接管。
     Plugin(DifyPluginEnv(MAX_REQUEST_TIMEOUT=120)).run()
 
 

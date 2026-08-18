@@ -4,8 +4,7 @@
 
 本包是整个 tcpr 插件（Typed Constraint-Preserving Retrieval，即
 “带类型约束保持的精确属性检索”）的核心实现层，负责承载与 Dify 运行时
-无关的全部业务逻辑与数据模型，供 `provider/tcpr.py` 中的工具实现
-（search、import_products、rebuild_index、get_schema）调用。
+无关的全部业务逻辑与数据模型，供 `provider/tcpr.py` 中的三个公开工具调用。
 
 ## 设计原则
 
@@ -24,7 +23,7 @@
 - `schema`：定义字段元数据（Field 数据类与 FIELDS 列表），
   以及 schema 序列化、归一化（normalize）、别名解析等纯函数。
 - `ingest`：负责将商品行数据清洗、校验并转换为可索引的内部表示，
-  是 import_products 工具的数据入口。
+  是文件工具的数据入口。
 - `engine`：检索引擎，实现带约束的匹配、打分与排序逻辑。
 - `storage`：存储抽象层（StorageAdapter 协议、InMemoryStorage 本地
   测试替身、面向 Dify Runtime KV 的 RuntimeKVStorageAdapter 等），

@@ -1,0 +1,50 @@
+identity:
+  name: build_database
+  author: lyts825
+  label:
+    en_US: Build Database
+    zh_Hans: 构建数据库快照
+description:
+  human:
+    en_US: Build a versioned database snapshot from the file and an existing TCPR index.
+    zh_Hans: 使用数据文件和已有 TCPR 索引构建版本化数据库快照。
+  llm: The input must match the indexed file; missing attributes receive typed sentinels.
+parameters:
+- name: file
+  type: file
+  required: true
+  label:
+    en_US: Source file
+    zh_Hans: 数据文件
+  human_description:
+    en_US: The same CSV, XLSX, JSON, or JSONL file used for build_index.
+    zh_Hans: 与 build_index 相同的 CSV、XLSX、JSON 或 JSONL 文件。
+  form: form
+- name: index_id
+  type: string
+  required: true
+  label:
+    en_US: Index ID
+    zh_Hans: 索引 ID
+  human_description:
+    en_US: Versioned index returned by build_index.
+    zh_Hans: build_index 返回的版本化索引 ID。
+  form: form
+- name: primary_key
+  type: string
+  required: false
+  default: ''
+  label:
+    en_US: Primary key
+    zh_Hans: 主键字段
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    database_id: {type: string}
+    error: {type: string}
+extra:
+  python:
+    source: tools/build_database.py

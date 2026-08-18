@@ -7,9 +7,8 @@
 Dify 持久化存储（persistent storage，manifest.yaml 中申请 256 MiB）
 中，因此本类只承载凭据校验逻辑，不持有任何配置或业务状态。
 
-本 Provider 通过 provider/tcpr.yaml 暴露四个工具：
-search（检索）、import_products（导入商品并重建索引）、
-rebuild_index（重建索引）、get_schema（查看 Schema）。
+本 Provider 通过 provider/tcpr.yaml 仅暴露三个工具：
+search、build_index、build_database；业务逻辑统一委托给根包共享核心。
 """
 
 from typing import Any

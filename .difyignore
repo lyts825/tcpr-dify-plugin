@@ -13,3 +13,9 @@
 *.log
 *.tmp
 verify_plugin.py
+tests/
+tests/**
+dist/
+dist/**
+.tools/
+.tools/**

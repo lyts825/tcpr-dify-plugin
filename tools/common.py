@@ -20,7 +20,7 @@ import base64
 from pathlib import Path
 from typing import Any
 
-from tcpr_core.service import TcprService
+from tcpr_core.shared_core import CoreService
 from tcpr_core.storage import RuntimeKVStorageAdapter
 
 # 单个导入文件的大小上限：64 * 1024 * 1024 = 64 MiB。
@@ -29,7 +29,7 @@ from tcpr_core.storage import RuntimeKVStorageAdapter
 MAX_FILE_BYTES = 64 * 1024 * 1024
 
 
-def service_for(tool: Any) -> TcprService:
+def service_for(tool: Any) -> CoreService:
     """根据 Dify 工具实例构造 TCPR 服务对象。
 
     Dify 插件运行时中持久化存储挂在 ``session.storage`` 上，
@@ -39,16 +39,16 @@ def service_for(tool: Any) -> TcprService:
 
     :param tool: Dify 工具类实例（或其测试替身），
                  通常带有 ``session`` / ``runtime`` 属性。
-    :return: 已绑定存储适配器的 :class:`TcprService` 实例。
+    :return: 已绑定存储适配器的 :class:`CoreService` 实例。
     """
     # 优先取 session 上的 storage：这是 Dify 官方工具运行时的标准挂载点
     session = getattr(tool, "session", None)
     if session is not None and getattr(session, "storage", None) is not None:
-        return TcprService(RuntimeKVStorageAdapter(session))
+        return CoreService(RuntimeKVStorageAdapter(session))
     # 回退到 tool.runtime（本地 fallback / 测试环境）。
     # 若 runtime 为 None，RuntimeKVStorageAdapter 会在真正读写时抛出 StorageNotConfigured，
     # 因此这里构造不会立刻失败。
-    return TcprService(RuntimeKVStorageAdapter(getattr(tool, "runtime", None)))
+    return CoreService(RuntimeKVStorageAdapter(getattr(tool, "runtime", None)))
 
 
 def read_file_parameter(value: Any) -> tuple[bytes, str]:

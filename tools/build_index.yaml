@@ -1,0 +1,43 @@
+identity:
+  name: build_index
+  author: lyts825
+  label:
+    en_US: Build Index
+    zh_Hans: 构建属性索引
+description:
+  human:
+    en_US: Build a versioned dynamic-attribute index from CSV, XLSX, JSON, or JSONL.
+    zh_Hans: 从 CSV、XLSX、JSON 或 JSONL 构建版本化动态属性索引。
+  llm: Build the index first; activate only after parsing, type inference, and indexing succeed.
+parameters:
+- name: file
+  type: file
+  required: true
+  label:
+    en_US: Source file
+    zh_Hans: 数据文件
+  human_description:
+    en_US: CSV, XLSX, JSON, or JSONL records.
+    zh_Hans: CSV、XLSX、JSON 或 JSONL 记录文件。
+  form: form
+- name: primary_key
+  type: string
+  required: false
+  default: ''
+  label:
+    en_US: Primary key
+    zh_Hans: 主键字段
+  human_description:
+    en_US: Optional field name; otherwise id/product_id/product_code/sku is inferred.
+    zh_Hans: 可选字段名；否则按 id/product_id/product_code/sku 推导。
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    index_id: {type: string}
+    error: {type: string}
+extra:
+  python:
+    source: tools/build_index.py
