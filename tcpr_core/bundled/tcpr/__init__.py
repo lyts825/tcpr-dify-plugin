@@ -1,8 +1,20 @@
-"""Public TCPR three-operation API."""
+"""Public TCPR API."""
 
-from .core_api import CoreError, CoreService, DirectoryKV, FileKV, InMemoryKV, build_database, build_index, search
+from .core_api import (
+    CoreError,
+    CoreService,
+    DirectoryKV,
+    FileKV,
+    InMemoryKV,
+    build_database,
+    build_index,
+    get_index_definition,
+    search,
+    structure_index,
+    structure_query,
+)
 
 __all__ = [
     "CoreError", "CoreService", "InMemoryKV", "FileKV", "DirectoryKV",
-    "build_index", "build_database", "search",
+    "build_index", "structure_index", "get_index_definition", "build_database", "search", "structure_query",
 ]

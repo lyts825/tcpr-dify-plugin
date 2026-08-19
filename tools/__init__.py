@@ -5,7 +5,9 @@ Dify 工具插件的 tools 包入口，集中管理暴露给 Dify 工作流调�
 
 - SearchTool（search.py）：使用 query_json、index_id、database_id
   搜索持久化快照；
-- BuildIndexTool（build_index.py）：从 CSV/XLSX/JSON/JSONL 构建动态属性索引；
+- StructureQueryTool（structure_query.py）：基于已保存索引的定义，确定性地
+  将文本或 JSON 需求转换为 query_json；
+- BuildIndexTool（build_index.py）：保存用户手工填写的逻辑索引定义；
 - BuildDatabaseTool（build_database.py）：按索引属性集合构建数据库快照并补齐缺失值。
 
 本 __init__.py 不导出任何符号，也不定义任何类或函数：各工具类由 Dify

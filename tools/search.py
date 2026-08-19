@@ -23,7 +23,7 @@ class SearchTool(_sdk_compat.ToolBase):
                 "index_id": str(tool_parameters.get("index_id", "") or ""),
                 "database_id": str(tool_parameters.get("database_id", "") or ""),
                 "results": [],
-                "error": str(exc),
+                "error": {"code": "ERROR", "message": str(exc)},
             }
         yield from _sdk_compat.emit_contract(self, payload)
 

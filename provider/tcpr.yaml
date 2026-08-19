@@ -13,6 +13,7 @@ identity:
   - search
 tools:
 - tools/search.yaml
+- tools/structure_query.yaml
 - tools/build_index.yaml
 - tools/build_database.yaml
 extra:

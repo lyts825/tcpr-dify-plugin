@@ -1,20 +1,21 @@
-"""Command-line adapter for TCPR's three public operations."""
+"""Command-line adapter for TCPR's persisted index/database/search operations."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import Any
-
 from .core_api import CoreService, FileKV
 
 
-def _source(path: Path, primary_key: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {"data": path, "filename": path.name}
-    if primary_key:
-        payload["primary_key"] = primary_key
+def _source(path: Path) -> dict[str, object]:
+    payload: dict[str, object] = {"data": path, "filename": path.name}
     return payload
+
+
+def _index_definition(path_or_json: str) -> str:
+    path = Path(path_or_json)
+    return path.read_text(encoding="utf-8") if path.is_file() else path_or_json
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -32,16 +33,14 @@ def _parser() -> argparse.ArgumentParser:
         # global value when it was supplied before the subcommand.
         command_parser.add_argument("--state-dir", type=Path, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
-    build_index_parser = sub.add_parser("build-index", help="build and activate a dynamic-attribute index")
+    build_index_parser = sub.add_parser("build-index", help="save and activate a user-authored logical index")
     add_state_override(build_index_parser)
-    build_index_parser.add_argument("file", type=Path)
-    build_index_parser.add_argument("--primary-key", default="")
+    build_index_parser.add_argument("index_json", help="path to the user-authored index JSON definition")
 
     build_database_parser = sub.add_parser("build-database", help="build and activate a database snapshot")
     add_state_override(build_database_parser)
     build_database_parser.add_argument("file", type=Path)
     build_database_parser.add_argument("index_id")
-    build_database_parser.add_argument("--primary-key", default="")
 
     search_parser = sub.add_parser("search", help="search persisted index/database snapshots")
     add_state_override(search_parser)
@@ -55,10 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     service = CoreService(FileKV(args.state_dir))
     if args.command == "build-index":
-        print(json.dumps({"index_id": service.build_index(_source(args.file, args.primary_key))}, ensure_ascii=False))
+        print(json.dumps({"index_id": service.build_index(_index_definition(args.index_json))}, ensure_ascii=False))
         return 0
     if args.command == "build-database":
-        print(json.dumps({"database_id": service.build_database(_source(args.file, args.primary_key), args.index_id)}, ensure_ascii=False))
+        print(json.dumps({"database_id": service.build_database(_source(args.file), args.index_id)}, ensure_ascii=False))
         return 0
     if args.command == "search":
         query_path = Path(args.query_json)

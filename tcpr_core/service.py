@@ -3,7 +3,7 @@
 本模块定义 TcprService 类，是整个 TCPR（Typed Constraint-Preserving
 Retrieval，类型化约束保持检索）插件对外的核心服务入口：它协调 ingest
 （表格读取与规范化）、engine（索引构建与检索）、schema（模式与约束
-规范化）和 storage（代际快照持久化）四个子模块，向三个公开工具提供
+规范化）和 storage（代际快照持久化）四个子模块，向插件工具提供
 索引构建、数据库构建与按约束检索能力。
 """
 from __future__ import annotations
@@ -278,8 +278,17 @@ class TcprService:
         except StorageNotConfigured as exc:
             return self._search_status("CONFIG_REQUIRED", str(exc), active)
 
-    def build_index(self, file: Any) -> str:
-        return self.shared.build_index(file)
+    def build_index(self, index_json: Any) -> str:
+        return self.shared.build_index(index_json)
+
+    def structure_index(self, index_requirement: Any) -> dict[str, Any]:
+        return self.shared.structure_index(index_requirement)
+
+    def get_index_definition(self, index_id: str) -> dict[str, Any]:
+        return self.shared.get_index_definition(index_id)
+
+    def structure_query(self, requirement: Any, index_id: str) -> dict[str, Any]:
+        return self.shared.structure_query(requirement, index_id)
 
     def build_database(self, file: Any, index_id: str) -> str:
         return self.shared.build_database(file, index_id)

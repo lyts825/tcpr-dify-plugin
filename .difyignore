@@ -19,3 +19,4 @@ dist/
 dist/**
 .tools/
 .tools/**
+design

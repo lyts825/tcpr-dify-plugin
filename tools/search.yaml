@@ -19,6 +19,7 @@ parameters:
   human_description:
     en_US: JSON containing hard and/or soft constraints with AND/OR/NOT.
     zh_Hans: 包含 hard/soft 约束及 AND/OR/NOT 的 JSON。
+  llm_description: Pass a validated query JSON document, usually from structure_query.
   form: llm
 - name: index_id
   type: string
@@ -26,25 +27,80 @@ parameters:
   label:
     en_US: Index ID
     zh_Hans: 索引 ID
-  form: form
+  human_description:
+    en_US: Versioned index returned by build_index.
+    zh_Hans: build_index 返回的版本化索引 ID。
+  llm_description: Pass the index_id returned by build_index.
+  form: llm
 - name: database_id
   type: string
   required: true
   label:
     en_US: Database ID
     zh_Hans: 数据库 ID
-  form: form
+  human_description:
+    en_US: Versioned database returned by build_database.
+    zh_Hans: build_database 返回的版本化数据库 ID。
+  llm_description: Pass the database_id returned by build_database.
+  form: llm
 output_schema:
   type: object
   properties:
-    message: {type: string}
-    status: {type: string}
-    index_id: {type: string}
-    database_id: {type: string}
-    count: {type: number}
-    results: {type: array}
-    debug: {type: object}
-    error: {type: object}
+    message:
+      type: string
+      description: Stable human-readable status message.
+    status:
+      type: string
+      description: OK or a stable error/status code.
+    index_id:
+      type: string
+      description: Index snapshot used by the search.
+    database_id:
+      type: string
+      description: Database snapshot used by the search.
+    count:
+      type: integer
+      description: Number of returned results.
+    results:
+      type: array
+      description: Typed, verified product hits.
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+            description: Product primary-key value.
+          score:
+            type: number
+            description: Soft-constraint score.
+          attributes:
+            type: object
+            description: Canonical typed attributes.
+            additionalProperties: true
+          raw:
+            type: object
+            description: Original source values.
+            additionalProperties: true
+          reasons:
+            type: array
+            description: Soft-constraint match explanations.
+            items: {type: string}
+        required: [id, score, attributes, raw, reasons]
+    debug:
+      type: object
+      description: Search plan and verification diagnostics.
+      additionalProperties: true
+    error:
+      type: object
+      description: Stable error object returned on failure.
+      properties:
+        code:
+          type: string
+          description: Stable error code.
+        message:
+          type: string
+          description: Human-readable error detail.
+      required: [code, message]
 extra:
   python:
     source: tools/search.py

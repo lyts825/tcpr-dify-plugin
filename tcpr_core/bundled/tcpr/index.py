@@ -93,7 +93,10 @@ class InMemoryIndex:
     def lookup_atom(self, atom: Constraint) -> tuple[set[int], str]:
         attr, kind = atom.attr, atom.kind
         if kind is ConstraintKind.EXISTS:
-            return {i for i, p in enumerate(self.products) if attr in p.attrs}, [f"EXISTS({attr})"]
+            return {
+                i for i, p in enumerate(self.products)
+                if attr in p.attrs and not isinstance(p.attrs[attr], MissingValue)
+            }, [f"EXISTS({attr})"]
         if kind is ConstraintKind.RANGE:
             if attr not in self.ranges:
                 return set(self.all_rows), [f"FULL({attr})"]

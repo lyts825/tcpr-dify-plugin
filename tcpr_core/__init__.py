@@ -4,7 +4,7 @@
 
 本包是整个 tcpr 插件（Typed Constraint-Preserving Retrieval，即
 “带类型约束保持的精确属性检索”）的核心实现层，负责承载与 Dify 运行时
-无关的全部业务逻辑与数据模型，供 `provider/tcpr.py` 中的三个公开工具调用。
+无关的全部业务逻辑与数据模型，供 `provider/tcpr.py` 中的公开工具调用。
 
 ## 设计原则
 

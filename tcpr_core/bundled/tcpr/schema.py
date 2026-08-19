@@ -27,7 +27,10 @@ class FieldSpec:
                 value = value.get("value")
             if isinstance(value, str):
                 import re
-                match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*([A-Za-z]+|元|兆)?\s*$", value)
+                # Capture the unit as a token and let the declared unit map
+                # decide whether it is supported. This keeps manual index
+                # definitions usable for Chinese units such as 厘米/公斤.
+                match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*(\S*)\s*$", value)
                 if match:
                     value, parsed_unit = match.groups()
                     unit = unit if unit is not None else (parsed_unit or "")

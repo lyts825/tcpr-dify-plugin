@@ -17,6 +17,7 @@ Excel 表头与商品行的解析逻辑位于 ``tcpr_core.ingest``。
 from __future__ import annotations
 
 import base64
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,133 @@ from tcpr_core.storage import RuntimeKVStorageAdapter
 # 仅约束 import_products 一次导入的 Excel 体积，防止超大文件拖垮索引构建，
 # 与 manifest.yaml 中 256 MiB 的 persistent storage 配额无关。
 MAX_FILE_BYTES = 64 * 1024 * 1024
+
+
+class ModelFallbackError(ValueError):
+    """Stable, non-sensitive failure from the single Dify model fallback."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _model_selector_mapping(selector: Any) -> dict[str, Any]:
+    """Validate the public model-selector value without accepting credentials."""
+
+    if selector is None or selector == "":
+        raise ModelFallbackError("MODEL_REQUIRED", "fallback_model is required for model fallback")
+    if isinstance(selector, Mapping):
+        value = dict(selector)
+    elif hasattr(selector, "model_dump"):
+        try:
+            value = dict(selector.model_dump())
+        except Exception as exc:
+            raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model selector is invalid") from exc
+    else:
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model selector is invalid")
+    provider = value.get("provider")
+    name = value.get("name", value.get("model"))
+    if not isinstance(provider, str) or not provider.strip() or not isinstance(name, str) or not name.strip():
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model requires provider and name")
+    mode = value.get("mode", "chat")
+    if hasattr(mode, "value"):
+        mode = mode.value
+    if not isinstance(mode, str) or mode not in {"chat", "completion"}:
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model mode must be chat or completion")
+    completion_params = value.get("completion_params")
+    if completion_params is None:
+        completion_params = {}
+    if not isinstance(completion_params, Mapping):
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model completion_params must be an object")
+    return {
+        "provider": provider.strip(),
+        "name": name.strip(),
+        "mode": mode,
+        "completion_params": dict(completion_params),
+    }
+
+
+def _clean_one_code_fence(value: str) -> str:
+    """Remove at most one outer Markdown code fence from model output."""
+
+    text = value.strip()
+    if not text.startswith("```"):
+        return text
+    newline = text.find("\n")
+    if newline < 0:
+        return text
+    text = text[newline + 1:]
+    if text.rstrip().endswith("```"):
+        text = text.rstrip()[:-3].rstrip()
+    return text
+
+
+def invoke_parameter_extractor(
+    tool: Any,
+    selector: Any,
+    query: str,
+    instruction: str,
+    *,
+    output_key: str,
+) -> Any:
+    """Invoke Dify's Parameter Extractor exactly once and return its output.
+
+    The helper deliberately sends only ``query`` and the caller-provided
+    instruction (which may contain the necessary index definition). It never
+    logs prompts, responses, files, database rows, or credentials.
+    """
+
+    config = _model_selector_mapping(selector)
+    if not isinstance(query, str) or not query.strip() or not isinstance(instruction, str):
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "model fallback input is invalid")
+    try:
+        from dify_plugin.entities.workflow_node import ModelConfig, ParameterConfig
+        model_config = ModelConfig(
+            provider=config["provider"],
+            name=config["name"],
+            mode=config["mode"],
+            completion_params=config["completion_params"],
+        )
+        parameters = [ParameterConfig(
+            name=output_key,
+            type="string",
+            description="Return only the requested JSON object or DSL result.",
+            required=True,
+        )]
+    except Exception as exc:
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "fallback_model cannot be configured") from exc
+    session = getattr(tool, "session", None)
+    workflow_node = getattr(session, "workflow_node", None)
+    extractor = getattr(workflow_node, "parameter_extractor", None)
+    invoke = getattr(extractor, "invoke", None)
+    if not callable(invoke):
+        raise ModelFallbackError("MODEL_CONFIG_INVALID", "Dify Parameter Extractor is unavailable")
+    try:
+        response = invoke(parameters, model_config, query, instruction)
+    except Exception as exc:
+        raise ModelFallbackError("MODEL_INVOCATION_FAILED", "Dify Parameter Extractor invocation failed") from exc
+    outputs = getattr(response, "outputs", None)
+    if outputs is None and isinstance(response, Mapping):
+        outputs = response.get("outputs")
+    if isinstance(outputs, Mapping):
+        aliases = (output_key, "index_json", "index_definition", "query_json", "query")
+        candidate = next((outputs[key] for key in aliases if key in outputs), None)
+        if candidate is None and len(outputs) == 1:
+            candidate = next(iter(outputs.values()))
+        if candidate is None:
+            candidate = outputs
+    elif isinstance(outputs, str):
+        candidate = outputs
+    else:
+        raise ModelFallbackError("MODEL_OUTPUT_INVALID", "Parameter Extractor returned no usable output")
+    if isinstance(candidate, str):
+        candidate = _clean_one_code_fence(candidate)
+        if not candidate:
+            raise ModelFallbackError("MODEL_OUTPUT_INVALID", "Parameter Extractor returned empty output")
+    elif not isinstance(candidate, Mapping):
+        raise ModelFallbackError("MODEL_OUTPUT_INVALID", "Parameter Extractor output must be JSON or text")
+    return candidate
 
 
 def service_for(tool: Any) -> CoreService:

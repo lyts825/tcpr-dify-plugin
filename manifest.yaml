@@ -1,4 +1,4 @@
-version: 0.0.2
+version: 0.0.4
 type: plugin
 author: lyts825
 name: tcpr
@@ -15,6 +15,8 @@ resource:
   permission:
     tool:
       enabled: true
+    node:
+      enabled: true
     storage:
       enabled: true
       size: 268435456
@@ -26,7 +28,7 @@ plugins:
   tools:
   - provider/tcpr.yaml
 meta:
-  version: 0.0.2
+  version: 0.0.4
   repo: https://github.com/lyts825/tcpr-dify-plugin
   contact: https://github.com/lyts825/tcpr-dify-plugin/issues
   arch:
