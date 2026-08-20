@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import sys
 import types
 from pathlib import Path
@@ -12,6 +13,21 @@ from tools.remote_query import RemoteQueryError, RemoteQueryTool, run_remote_que
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_tool_module_loads_when_a_host_does_not_register_it_in_sys_modules():
+    """Dify executes tool sources this way during plugin discovery."""
+
+    source = ROOT / "tools" / "remote_query.py"
+    module_name = "_dify_unregistered_remote_query"
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.pop(module_name, None)
+
+    spec.loader.exec_module(module)
+
+    assert callable(module.run_remote_query)
 
 
 class FakeCursor:
@@ -91,7 +107,7 @@ def test_provider_registers_only_remote_query_and_permissions_are_minimal():
     provider = yaml.safe_load((ROOT / "provider" / "tcpr.yaml").read_text(encoding="utf-8"))
     assert provider["tools"] == ["tools/remote_query.yaml"]
     manifest = yaml.safe_load((ROOT / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["version"] == "0.0.8"
+    assert manifest["version"] == "0.0.9"
     assert "node" not in manifest["resource"]["permission"]
     assert "storage" not in manifest["resource"]["permission"]
 

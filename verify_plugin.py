@@ -71,8 +71,8 @@ def verify_runtime_contracts() -> None:
     assert not any("build_" in path or "search" in path or "structure" in path for path in tool_paths)
 
     manifest_doc = yaml.safe_load((ROOT / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest_doc["version"] == "0.0.8"
-    assert manifest_doc["meta"]["version"] == "0.0.8"
+    assert manifest_doc["version"] == "0.0.9"
+    assert manifest_doc["meta"]["version"] == "0.0.9"
     assert set(manifest_doc["tags"]) == {"business", "utilities"}
     assert manifest_doc["privacy"] == "./PRIVACY.md"
     permissions = manifest_doc["resource"]["permission"]
@@ -138,7 +138,7 @@ def verify_dify_registration() -> None:
         registration = PluginRegistration(DifyPluginEnv())
     finally:
         os.chdir(previous)
-    assert registration.configuration.version == "0.0.8"
+    assert registration.configuration.version == "0.0.9"
     assert sorted(registration.tools_mapping["tcpr"][2]) == ["remote_query"]
 
 

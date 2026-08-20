@@ -1,4 +1,4 @@
-version: 0.0.8
+version: 0.0.9
 type: plugin
 author: lyts825
 name: tcpr
@@ -26,7 +26,7 @@ plugins:
   tools:
   - provider/tcpr.yaml
 meta:
-  version: 0.0.8
+  version: 0.0.9
   repo: https://github.com/lyts825/tcpr-dify-plugin
   contact: https://github.com/lyts825/tcpr-dify-plugin/issues
   arch:

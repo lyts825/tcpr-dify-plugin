@@ -2,6 +2,19 @@
 
 All notable changes to this Dify plugin are documented here.
 
+## 0.0.9 - 2026-08-20
+
+### Fixed
+
+- Made `remote_query` compatible with Dify's source-module loader on Python
+  3.12. The module no longer uses postponed annotations, which caused Python's
+  `dataclass` decorator to fail before the tool could start.
+
+### Distribution
+
+- Designated `codex/remote-query` as the one-click remote-query branch; the
+  default `main` branch carries the composable multi-tool edition.
+
 ## 0.0.8 - 2026-08-20
 
 ### Breaking changes

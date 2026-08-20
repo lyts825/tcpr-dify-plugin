@@ -1,5 +1,9 @@
 # TCPR Dify 工具插件
 
+> 当前为 `codex/remote-query` 分支的**一键远程查询版**：只公开一个工具，
+> 面向希望降低配置、学习和理解成本的用户。默认 `main` 分支提供可灵活编排的
+> 四工具组合版。选择版本前请先阅读 [`BRANCHES.md`](../BRANCHES.md)。
+
 TCPR（`lyts825/tcpr`）现在只公开一个工具：`remote_query`。它按本次调用
 提供的连接信息访问 PostgreSQL 或 MySQL 远程数据库并返回有限行数的 JSON
 结果；不再创建或持久化本地索引、数据库快照。
@@ -40,7 +44,7 @@ JSON 索引；常用筛选列与主键排序也可以考虑复合索引。以上
 打包命令：
 
 ```powershell
-dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
+dify plugin package . -o .\dist\tcpr-0.0.9.difypkg
 ```
 
 隐私说明见 [`PRIVACY.md`](../PRIVACY.md)。

@@ -1,5 +1,11 @@
 # TCPR Dify Tool Plugin
 
+> This is the **one-click remote-query edition** on the
+> `codex/remote-query` branch. It exposes one tool and is intended for users
+> who prefer the shortest setup and learning path. The default `main` branch
+> provides the composable four-tool edition for flexible workflows. See
+> [BRANCHES.md](BRANCHES.md) before choosing an edition.
+
 TCPR (`lyts825/tcpr`) is a Dify tool plugin that exposes one operation:
 `remote_query`. It connects to a PostgreSQL or MySQL database configured for
 the current call and returns a bounded, JSON-serializable result. Connection,
@@ -106,7 +112,7 @@ The tests use fake drivers and do not connect to a real external database.
 Package with the Dify CLI:
 
 ```powershell
-dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
+dify plugin package . -o .\dist\tcpr-0.0.9.difypkg
 ```
 
 See [PRIVACY.md](PRIVACY.md) for data handling.
