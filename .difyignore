@@ -15,7 +15,11 @@
 verify_plugin.py
 tests/
 tests/**
+.pytest_cache/
+.pytest_cache/**
 dist/
 dist/**
 .tools/
 .tools/**
+design
+doc/

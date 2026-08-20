@@ -1,39 +1,53 @@
 # TCPR Dify 工具插件
 
-TCPR（Typed Constraint-Preserving Retrieval）是一个用于动态属性精确检索的 Dify Tool Plugin，仅提供三个公开工具：
+TCPR（`lyts825/tcpr`）现在只公开一个工具：`remote_query`。它按本次调用
+提供的连接信息访问 PostgreSQL 或 MySQL 远程数据库并返回有限行数的 JSON
+结果；不再创建或持久化本地索引、数据库快照。
 
-- `search`：使用持久化 index/database 执行类型化 Hard/Soft 约束；
-- `build_index`：从 CSV/XLSX/JSON/JSONL 构建并原子激活动态属性索引；
-- `build_database`：按索引字段集合构建数据库并写入类型化缺失标记。
+`database_type`、`host`、`port`、`database`、`username`、`password`、
+`ssl_mode`、`table`、`tcpr_schema_json` 全部是 `form` 参数，不会交给 LLM。
+默认 `query_mode=tcpr`：`tcpr_schema_json` 映射属性、白名单列和一个主键，
+`tcpr_query_json` 由 LLM 提供 `hard`、`soft`、`select`、`top_k`。硬约束在
+数据库端生成参数化 `WHERE`，软约束用 `SUM(CASE ...)` 加权排序，按得分降序、
+主键升序稳定返回，并且服务端只取 `top_k+1` 行。NULL/缺失值遵循三值逻辑，
+矛盾硬约束不会连接数据库。`raw_sql` 只有表单显式选择时才启用，`sql` 和独立的
+`parameters_json` 才会生效；SQL 必须只有一条 `SELECT` 或纯查询
+`WITH`，使用 `:name` 命名占位符；多语句、写入、DDL/DCL、修改型 CTE、
+`SELECT INTO/OUTFILE` 以及锁定查询都会被拒绝，并通过外层 `LIMIT 101` 防止全量传输。
 
-三项能力共享插件内置的 `tcpr_core/bundled/tcpr/core_api.py`，该副本是插件运行时的唯一事实来源。`build_index` 返回 `index_id`，
-`build_database` 接收同一文件和该 ID 返回 `database_id`，`search` 接收查询 JSON
-及两个 ID。主键可通过 `primary_key` 配置，否则按 `id`、`product_id`、
-`product_code`、`sku`、`编号`、`产品编号` 推导，并且必须唯一。搜索直接消费已持久化
-索引，不会按请求临时重建；索引/数据库构建失败不会切换已激活快照。
+工具通过数据库服务端只读事务执行，不把客户端文本检查当作唯一保护。默认
+连接超时 10 秒、查询超时 30 秒、最多返回 100 行（硬上限为 30/60 秒和
+1000 行）。默认 TLS 模式为 `verify-full`。密码和连接信息只在本次调用中
+使用，不写入 Dify storage、不回显、不记录日志；错误信息为稳定的脱敏错误。
 
-Provider 标识为 `lyts825/tcpr/tcpr`。
+请为数据库配置最小权限只读账号。PostgreSQL 使用 `pg8000`，MySQL 使用
+`PyMySQL`。本地测试使用 fake driver，不连接真实数据库：
 
-## 从 GitHub 安装
+## 远程索引建议
 
-本插件通过 Dify 的 GitHub 安装器分发。仓库必须有一个已发布的 GitHub
-Release，并在 Release Assets 中附带 `.difypkg` 文件。
+插件绝不会创建或修改远程表、索引、Schema 或其他数据库对象。对于频繁使用的
+TCPR 查询，数据库管理员可以根据实际查询计划，考虑为常用 hard `EQ`、`IN` 和
+范围筛选列建立 PostgreSQL B-tree 或 MySQL BTREE 索引。多值 JSON 数组可根据
+数据库版本和管理员策略考虑 PostgreSQL `GIN jsonb_path_ops` 或 MySQL 多值
+JSON 索引；常用筛选列与主键排序也可以考虑复合索引。以上仅是远程数据库运维
+建议，插件不会执行 `EXPLAIN`、创建索引或变更远程状态。
 
-1. 在 Dify 打开 **Plugins**；
-2. 选择 **Install Plugin** → **From GitHub**；
-3. 输入 `https://github.com/lyts825/tcpr-dify-plugin`；
-4. 选择与插件版本对应的 Release，确认权限后安装。
+```powershell
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -B verify_plugin.py
+```
 
-当前 `0.0.2` 版本对应 tag `v0.0.2` 与资产
-`tcpr-0.0.2.difypkg`。后续版本需先递增 `manifest.yaml` 中的 `version`，再重新打包并发布匹配的 Release。
+打包命令：
 
-## 数据与运行时
+```powershell
+dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
+```
 
-插件使用 Python 3.12，并将通过校验的商品快照、索引、Schema 元数据和导入警告写入 Dify 持久化存储。插件不调用外部服务，也不会把商品行发送给第三方。外部知识库绑定由目标 Dify 工作区配置，不随仓库或插件包发布。
+隐私说明见 [`PRIVACY.md`](../PRIVACY.md)。
 
-插件申请 256 MiB 持久化存储，实际可用性取决于 Dify 运行环境。启用第三方签名校验的自托管 Dify 可能要求管理员先批准未签名包。
+## 0.0.8 破坏性变更
 
-## 隐私与支持
-
-数据处理政策见 [PRIVACY.md](../PRIVACY.md)。问题与功能建议请提交到
-[GitHub Issues](https://github.com/lyts825/tcpr-dify-plugin/issues)。
+0.0.8 以唯一的 `remote_query` 工具替换旧版本地索引工具（`search`、
+`structure_query`、`build_index`、`build_database`）。已有工作流需要改为配置
+PostgreSQL 或 MySQL 只读连接，并使用默认 TCPR JSON 查询或显式选中的有限
+`raw_sql` 模式；旧版本地存储和索引数据不会迁移。
