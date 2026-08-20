@@ -1,0 +1,71 @@
+identity:
+  name: build_index
+  author: lyts825
+  label:
+    en_US: Build Index
+    zh_Hans: 构建属性索引
+description:
+  human:
+    en_US: Build a versioned logical index from a user-authored JSON definition.
+    zh_Hans: 根据用户手工填写的 JSON 定义构建版本化逻辑索引。
+  llm: Provide index_json when available; otherwise provide the documented index_requirement DSL. Deterministic parsing runs first and the selected Dify Parameter Extractor is used at most once only when deterministic parsing fails. This operation does not read a data file.
+parameters:
+- name: index_json
+  type: string
+  required: false
+  label:
+    en_US: Index definition JSON
+    zh_Hans: 索引定义 JSON
+  human_description:
+    en_US: JSON object defining the primary key and every indexed attribute.
+    zh_Hans: 定义主键以及全部索引字段、字段类型和数值单位的 JSON 对象。
+  llm_description: Pass the complete user-authored index definition JSON. A non-empty value is authoritative and invalid JSON is an error; it never falls back to index_requirement.
+  form: llm
+- name: index_requirement
+  type: string
+  required: false
+  label:
+    en_US: Index requirement
+    zh_Hans: 索引需求
+  human_description:
+    en_US: Documented English/Chinese DSL declaring primary_key, every field kind, and optional aliases, value_aliases, units, or enum_order.
+    zh_Hans: 使用文档化中英 DSL 声明 primary_key、全部字段类型及可选别名、值别名、单位或枚举顺序。
+  llm_description: Use only the documented index DSL; do not omit the primary key or field kinds, and declare numeric units only when they are known.
+  form: llm
+- name: fallback_model
+  type: model-selector
+  scope: llm
+  required: false
+  label:
+    en_US: Fallback model
+    zh_Hans: 回退模型
+  human_description:
+    en_US: Optional user-selected Dify model used once if deterministic index requirement parsing fails.
+    zh_Hans: 确定性索引需求解析失败时最多调用一次的用户选择 Dify 模型。
+  llm_description: Leave unset unless a single model fallback is explicitly needed.
+  form: form
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    index_id: {type: string}
+    parse_source: {type: string}
+    index_json: {type: string}
+    index_definition:
+      type: object
+      additionalProperties: true
+    error:
+      type: object
+      description: Stable error object returned on failure.
+      properties:
+        code:
+          type: string
+          description: Stable error code.
+        message:
+          type: string
+          description: Human-readable error detail.
+      required: [code, message]
+extra:
+  python:
+    source: tools/build_index.py

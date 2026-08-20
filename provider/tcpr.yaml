@@ -2,17 +2,20 @@ identity:
   author: lyts825
   name: tcpr
   label:
-    en_US: TCPR Remote Read-only Query
-    zh_Hans: TCPR 远程只读查询
+    en_US: TCPR Composable Tool Suite
+    zh_Hans: TCPR 多工具组合
   description:
-    en_US: TCPR hard-filtered and weighted-ranked read-only queries against user-configured PostgreSQL and MySQL databases
-    zh_Hans: 对用户配置的 PostgreSQL 和 MySQL 数据库执行 TCPR 硬约束过滤和软约束加权排序的只读查询
+    en_US: Compose indexing, database building, query structuring, and search as separate tools
+    zh_Hans: 将索引、数据库构建、查询结构化与搜索作为独立工具灵活编排
   icon: tcpr.svg
   tags:
   - business
-  - utilities
+  - search
 tools:
-- tools/remote_query.yaml
+- tools/search.yaml
+- tools/structure_query.yaml
+- tools/build_index.yaml
+- tools/build_database.yaml
 extra:
   python:
     source: provider/tcpr.py

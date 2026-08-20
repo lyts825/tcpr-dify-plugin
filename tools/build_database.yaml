@@ -1,0 +1,54 @@
+identity:
+  name: build_database
+  author: lyts825
+  label:
+    en_US: Build Database
+    zh_Hans: 构建数据库快照
+description:
+  human:
+    en_US: Build a versioned database snapshot from the file and an existing TCPR index.
+    zh_Hans: 使用数据文件和已有 TCPR 索引构建版本化数据库快照。
+  llm: The database file is normalized strictly against the user-authored index; missing attributes receive typed sentinels.
+parameters:
+- name: file
+  type: file
+  required: true
+  label:
+    en_US: Source file
+    zh_Hans: 数据文件
+  human_description:
+    en_US: CSV, XLSX, JSON, or JSONL data to normalize against the user-authored index.
+    zh_Hans: 按用户手工索引定义规范化的 CSV、XLSX、JSON 或 JSONL 数据文件。
+  llm_description: Pass the source file whose fields exactly match the user-authored index.
+  form: llm
+- name: index_id
+  type: string
+  required: true
+  label:
+    en_US: Index ID
+    zh_Hans: 索引 ID
+  human_description:
+    en_US: Versioned index returned by build_index.
+    zh_Hans: build_index 返回的版本化索引 ID。
+  llm_description: Pass the index_id returned by build_index for normalization and indexing.
+  form: llm
+output_schema:
+  type: object
+  properties:
+    message: {type: string}
+    status: {type: string}
+    database_id: {type: string}
+    error:
+      type: object
+      description: Stable error object returned on failure.
+      properties:
+        code:
+          type: string
+          description: Stable error code.
+        message:
+          type: string
+          description: Human-readable error detail.
+      required: [code, message]
+extra:
+  python:
+    source: tools/build_database.py

@@ -1,121 +1,96 @@
 # TCPR Dify Tool Plugin
 
-TCPR (`lyts825/tcpr`) is a Dify tool plugin that exposes one operation:
-`remote_query`. It connects to a PostgreSQL or MySQL database configured for
-the current call and returns a bounded, JSON-serializable result. Connection,
-table, and TCPR schema fields are form inputs; the model supplies only a
-constraint query JSON.
+> The default `main` branch is the **composable tool-suite edition** for users
+> who want explicit control over each workflow step. For the lower-learning-cost
+> single-tool experience, use the `codex/remote-query` branch. See
+> [BRANCHES.md](BRANCHES.md) for a side-by-side comparison.
 
-TCPR mode is the default. It maps an explicit allowlisted schema to one table,
-compiles hard constraints into an index-friendly parameterized `WHERE`, and
-compiles weighted soft constraints into server-side `SUM(CASE ...)` scoring.
-Results are ordered by score descending and the configured primary key
-ascending, with a server-side `LIMIT top_k + 1`. An explicitly selected
-`raw_sql` mode remains available for bounded read-only SQL and wraps it in an
-outer `LIMIT 101`.
+TCPR (Typed Constraint-Preserving Retrieval) is a Dify Tool Plugin for exact
+retrieval over dynamic product attributes. The plugin exposes exactly four tools:
 
-The SQL policy is intentionally narrow: one `SELECT` or read-only `WITH`
-statement, with named placeholders such as `:status`. Multiple statements,
-writes, DDL/DCL, mutating CTEs, `SELECT INTO`/`OUTFILE`, and locking clauses are
-rejected before the driver is called. The plugin starts a server-enforced
-read-only transaction, uses a 10 second connection timeout and a 30 second
-query timeout, and returns at most 100 rows (hard limits: 30/60 seconds and
-1000 rows). A result over the limit is marked `truncated`.
+- `search` — execute typed hard/soft constraints against a persisted index/database.
+- `structure_query` — deterministically convert a schema-aware requirement into validated query JSON, with one optional model fallback for failed natural language only.
+- `build_index` — save and atomically activate a user-authored logical index definition.
+- `build_database` — build a matching database snapshot with typed missing markers.
 
-Configure a least-privilege read-only database account. TLS certificate
-verification (`verify-full`) is the default. Passwords and connection details
-are never returned in errors or intentionally logged by the plugin. The
-password is a Dify `secret-input` field; Dify handles any configured-secret
-storage under the policies of the deployment. Query rows return to the calling
-workflow and may be provided to downstream LLM nodes if that workflow is
-configured to do so. Sensitive-looking result fields are redacted during
-serialization, but workflows should select only the data they are allowed to
-use.
+The provider is a thin adapter over the bundled core in
+`tcpr_core/bundled/tcpr/core_api.py`; that bundled copy is authoritative at
+runtime and makes the plugin independently installable. `build_index` accepts
+authoritative `index_json` or a documented English/Chinese `index_requirement`.
+A non-empty `index_json` is validated directly and never replaced by the
+requirement or a model. If the DSL fails, the optional user-selected Dify
+Parameter Extractor is called at most once; its candidate is validated by the
+bundled core before saving. The tool does not read a data file. It returns
+`index_id` and `parse_source`; pass a data file and that ID to
+`build_database`, which validates and normalizes rows and generates the
+persistent postings/ranges physical index. Then pass both IDs to `search`.
+Search consumes the persisted database index and does not rebuild it per request.
+`structure_query` uses the referenced index definition to parse text or validate
+an existing JSON query. Only failed, non-empty natural language may use the
+optional one-call model fallback; explicit JSON/dict input, missing indexes,
+storage errors, and corrupted definitions never use it. Model candidates are
+validated by the core before being returned.
 
-## Tool inputs
+The DSL is intentionally strict: `primary_key: id` followed by
+`attributes:`/`fields:` and declarations such as `id: string`,
+`price: numeric units=元:1`, or
+`color: enum aliases=颜色 value_aliases=红色->red`. Every field kind is
+explicit; units are accepted only when declared and are never inferred; optional `enum_order` is required for
+`ordered_enum`. Unknown statements or trailing text are errors.
 
-`query_mode` is a `form` parameter defaulting to `tcpr`; choose `raw_sql`
-explicitly to enable the raw branch. `database_type`, `host`, `port`,
-`database`, `username`, `password`, `ssl_mode`, `table`, and
-`tcpr_schema_json` are form parameters. The schema JSON has a `fields` object
-whose entries contain `column` and TCPR `kind` (`numeric`, `enum`, `multi`,
-etc.); declare exactly one `primary_key` for stable ordering. Example:
+The provider identifier is `lyts825/tcpr/tcpr`.
 
-```json
-{"primary_key":"id","fields":{"id":{"column":"id","kind":"numeric"},"price":{"column":"price","kind":"numeric"},"features":{"column":"features","kind":"multi"}}}
-```
+## Install from GitHub
 
-`tcpr_query_json` is an LLM parameter with `hard`, optional weighted `soft`,
-`select`, and `top_k`, for example:
+This repository is intended to be installed through Dify's GitHub installer.
+The repository must have a published GitHub Release with a `.difypkg` asset.
 
-```json
-{"hard":[{"attr":"price","op":"GE","value":100}],"soft":[{"constraint":{"attr":"features","op":"CONTAINS","value":"wifi6"},"weight":2}],"select":["id","price"],"top_k":20}
-```
+1. Open **Plugins** in Dify.
+2. Select **Install Plugin** and choose **From GitHub**.
+3. Enter `https://github.com/lyts825/tcpr-dify-plugin`.
+4. Select the release matching the plugin version, then confirm the requested
+   permissions.
 
-`sql` and `parameters_json` are only used in explicitly selected `raw_sql`
-mode. Values are always bound parameters; table/column identifiers come only
-from the form-provided allowlist. TCPR NULL/missing values retain three-valued
-logic, and contradictory hard constraints return without opening a connection.
+For version `0.1.0`, the release tag is `v0.1.0` and the asset is
+`tcpr-0.1.0.difypkg`. For each update, increment `version` in `manifest.yaml`,
+package the plugin again, and publish a new matching release.
 
-## Setup and authorization
+## Data and runtime
 
-1. Install the packaged plugin in Dify and add `TCPR Remote Read-only Query`
-   to a workflow or agent.
-2. Create a dedicated database account with access limited to the required
-   database, schema/table, and `SELECT` operation. Do not reuse an owner,
-   administrator, or write-capable account.
-3. In the tool's form fields, set the database type, host, port, database,
-   username, password, and TLS mode. The default `verify-full` requires a
-   certificate that the plugin runtime can validate; use `require` or `disable`
-   only when the deployment's network-security policy explicitly permits it.
-4. For TCPR mode, set `table` and `tcpr_schema_json` as a strict column
-   allowlist with one `primary_key`. Keep `query_mode` set to `tcpr` unless a
-   reviewed workflow explicitly needs bounded `raw_sql`.
-5. Configure downstream workflow nodes so that only authorized recipients can
-   receive database rows. Test with non-production data before production use.
+The plugin runs with Python 3.12 and uses Dify persistent storage for validated
+product snapshots, indexes, schema metadata, and import warnings. Except for the
+single fallback explicitly selected by the user, it does not call an external
+service or send product rows to a third party. The production Product_KB binding
+is configured by the target Dify workspace and is not bundled with this
+repository.
 
-The plugin opens a connection only to the database endpoint configured in the
-form. See [PRIVACY.md](PRIVACY.md) for the full data-flow and retention notice.
+The plugin requests 256 MiB of persistent storage. Actual availability depends
+on the Dify runtime. Unsigned packages may require administrator approval on
+self-hosted Dify instances with third-party signature verification enabled.
 
-## Remote index recommendations
+## Local development
 
-The plugin never creates or changes tables, indexes, schemas, or other remote
-database objects. For frequent TCPR workloads, a database administrator may
-consider PostgreSQL B-tree indexes or MySQL BTREE indexes on commonly used
-hard `EQ`, `IN`, and range-filter columns. For multi-valued JSON arrays,
-PostgreSQL GIN indexes with `jsonb_path_ops` or MySQL multi-valued JSON
-indexes may help, subject to the database version and the administrator's
-indexing policy. A composite index covering frequent filter columns and the
-primary-key ordering can also be considered after reviewing real query plans.
-These are operational recommendations only; the plugin does not run
-`EXPLAIN`, create indexes, or modify remote state.
-
-## Installation and verification
-
-The package requires Python 3.12, `pg8000` for PostgreSQL, and `PyMySQL` for
-MySQL:
+From this directory:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python -m pytest -q
-.\.venv\Scripts\python -B verify_plugin.py
+.\.venv\Scripts\python -B -c "from verify_plugin import verify_runtime_contracts; verify_runtime_contracts(); print('RUNTIME_CONTRACTS_OK')"
 ```
 
-The tests use fake drivers and do not connect to a real external database.
-Package with the Dify CLI:
+The verification script exercises the local runtime contracts and does not
+require a production workbook. Production data is intentionally not included in
+the repository or plugin package.
+
+To create a distributable package, run the official Dify Plugin CLI from this
+project directory:
 
 ```powershell
-dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
+dify plugin package . -o .\dist\tcpr-0.1.0.difypkg
 ```
 
-See [PRIVACY.md](PRIVACY.md) for data handling.
+## Privacy and support
 
-## Breaking change in 0.0.8
-
-Version 0.0.8 replaces the earlier local-index tools (`search`,
-`structure_query`, `build_index`, and `build_database`) with the single
-`remote_query` tool. Existing workflows must be updated to configure a
-read-only PostgreSQL or MySQL connection and use either TCPR JSON (default) or
-the explicitly selected bounded `raw_sql` mode. No upgrade path preserves the
-removed local storage or index data.
+See [PRIVACY.md](PRIVACY.md) for the data-handling policy. Please use the
+[GitHub Issues](https://github.com/lyts825/tcpr-dify-plugin/issues) page for
+support and bug reports.

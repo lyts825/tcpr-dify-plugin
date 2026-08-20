@@ -1,28 +1,19 @@
 # Changelog
 
-All notable changes to this Dify plugin are documented here.
+All notable changes to the composable TCPR edition are documented here.
 
-## 0.0.8 - 2026-08-20
+## 0.1.0 - 2026-08-21
 
-### Breaking changes
+### Changed
 
-- Replaced `search`, `structure_query`, `build_index`, and `build_database`
-  with one `remote_query` tool.
-- Removed the plugin's local index, database snapshot, and storage permission.
-  Existing local data is not migrated.
-
-### Added
-
-- Read-only PostgreSQL and MySQL queries with bounded results and timeout
-  limits.
-- Default TCPR constraint compilation against a form-provided column allowlist;
-  an explicitly selected bounded `raw_sql` mode remains available.
-- TLS controls, secret-input password handling, stable redacted errors, and
-  expanded setup and privacy documentation.
+- Established `main` as the composable multi-tool release track.
+- Exposed `build_index`, `build_database`, `structure_query`, and `search` as
+  separate tools so users can arrange and reuse workflow steps independently.
+- Moved the one-click read-only PostgreSQL/MySQL experience to the
+  `codex/remote-query` branch.
 
 ### Migration
 
-Update each existing workflow to use `remote_query`. Configure a dedicated
-least-privilege read-only database account, the connection form fields, and a
-TCPR table/schema allowlist. Review all downstream nodes before passing query
-results to an LLM or other external service.
+Users who prefer the former single `remote_query` entry point should install
+the `codex/remote-query` edition. The two editions share a plugin identity and
+should not be installed together in the same Dify workspace.
