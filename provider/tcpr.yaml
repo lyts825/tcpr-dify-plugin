@@ -2,20 +2,17 @@ identity:
   author: lyts825
   name: tcpr
   label:
-    en_US: TCPR
-    zh_Hans: TCPR 精确属性检索
+    en_US: TCPR Remote Read-only Query
+    zh_Hans: TCPR 远程只读查询
   description:
-    en_US: Typed constraint-preserving retrieval for production products
-    zh_Hans: 面向生产产品的类型约束保持检索
+    en_US: TCPR hard-filtered and weighted-ranked read-only queries against user-configured PostgreSQL and MySQL databases
+    zh_Hans: 对用户配置的 PostgreSQL 和 MySQL 数据库执行 TCPR 硬约束过滤和软约束加权排序的只读查询
   icon: tcpr.svg
   tags:
   - business
-  - search
+  - utilities
 tools:
-- tools/search.yaml
-- tools/structure_query.yaml
-- tools/build_index.yaml
-- tools/build_database.yaml
+- tools/remote_query.yaml
 extra:
   python:
     source: provider/tcpr.py

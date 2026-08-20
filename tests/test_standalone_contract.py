@@ -1,403 +1,277 @@
-import json
-import os
-from pathlib import Path
-from types import SimpleNamespace
+from __future__ import annotations
 
+import json
+import sys
+import types
+from pathlib import Path
+
+import pytest
 import yaml
+
+from tools.remote_query import RemoteQueryError, RemoteQueryTool, run_remote_query
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _hybrid_definition() -> dict:
-    return {
-        "primary_key": "id",
-        "attributes": {
-            "id": {"kind": "string"},
-            "color": {
-                "kind": "enum",
-                "aliases": ["颜色"],
-                "value_aliases": {"红": "red"},
-            },
-            "ram": {"kind": "numeric", "units": {"": 1}},
-        },
+class FakeCursor:
+    def __init__(self, rows=None, columns=("id", "name")):
+        self.rows = rows if rows is not None else [(1, "one")]
+        self.description = [(name,) for name in columns]
+        self.calls = []
+        self.closed = False
+
+    def execute(self, sql, args=None):
+        self.calls.append((sql, args))
+
+    def fetchmany(self, size):
+        return self.rows[:size]
+
+    def close(self):
+        self.closed = True
+
+
+class FakeConnection:
+    def __init__(self, rows=None, columns=("id", "name")):
+        self.cursor_obj = FakeCursor(rows, columns)
+        self.rollback_called = False
+        self.close_called = False
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def rollback(self):
+        self.rollback_called = True
+
+    def close(self):
+        self.close_called = True
+
+
+def install_fake_driver(monkeypatch, database_type="postgresql", rows=None, columns=("id", "name")):
+    connections = []
+
+    def connect(**kwargs):
+        connection = FakeConnection(rows, columns)
+        connection.connect_kwargs = kwargs
+        connections.append(connection)
+        return connection
+
+    if database_type == "postgresql":
+        package = types.ModuleType("pg8000")
+        dbapi = types.ModuleType("pg8000.dbapi")
+        dbapi.connect = connect
+        package.dbapi = dbapi
+        monkeypatch.setitem(sys.modules, "pg8000", package)
+        monkeypatch.setitem(sys.modules, "pg8000.dbapi", dbapi)
+    else:
+        module = types.ModuleType("pymysql")
+        module.connect = connect
+        monkeypatch.setitem(sys.modules, "pymysql", module)
+    return connections
+
+
+def base_params(sql="SELECT id, name FROM products WHERE state = :state", **extra):
+    result = {
+        "database_type": "postgresql",
+        "host": "db.example",
+        "port": 5432,
+        "database": "products",
+        "username": "readonly",
+        "password": "dont-echo-me",
+        "ssl_mode": "verify-full",
+        "query_mode": "raw_sql",
+        "sql": sql,
+        "parameters_json": json.dumps({"state": "active"}),
+    }
+    result.update(extra)
+    return result
+
+
+def test_provider_registers_only_remote_query_and_permissions_are_minimal():
+    provider = yaml.safe_load((ROOT / "provider" / "tcpr.yaml").read_text(encoding="utf-8"))
+    assert provider["tools"] == ["tools/remote_query.yaml"]
+    manifest = yaml.safe_load((ROOT / "manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["version"] == "0.0.8"
+    assert "node" not in manifest["resource"]["permission"]
+    assert "storage" not in manifest["resource"]["permission"]
+
+
+def test_remote_yaml_keeps_connection_fields_out_of_llm():
+    document = yaml.safe_load((ROOT / "tools" / "remote_query.yaml").read_text(encoding="utf-8"))
+    parameters = {item["name"]: item for item in document["parameters"]}
+    for name in ("query_mode", "database_type", "host", "port", "database", "username", "password", "ssl_mode", "table", "tcpr_schema_json"):
+        assert parameters[name]["form"] == "form"
+    assert parameters["password"]["type"] == "secret-input"
+    assert parameters["sql"]["form"] == "llm"
+    assert parameters["tcpr_query_json"]["form"] == "llm"
+    assert parameters["parameters_json"]["form"] == "llm"
+
+
+def test_postgres_query_uses_named_parameters_server_read_only_and_rolls_back(monkeypatch):
+    connections = install_fake_driver(monkeypatch)
+    result = run_remote_query(base_params())
+    connection = connections[0]
+    assert result == {
+        "status": "OK",
+        "database_type": "postgresql",
+        "query_mode": "raw_sql",
+        "rows": [{"id": 1, "name": "one"}],
+        "row_count": 1,
+        "columns": ["id", "name"],
+        "truncated": False,
+    }
+    assert connection.cursor_obj.calls[0] == ("BEGIN READ ONLY", None)
+    assert "LIMIT 101" in connection.cursor_obj.calls[1][0]
+    assert connection.cursor_obj.calls[1][1] == ["active"]
+    assert connection.rollback_called and connection.close_called
+    assert connection.connect_kwargs["timeout"] == 10
+    assert connection.connect_kwargs["startup_params"] == {
+        "default_transaction_read_only": "on",
+        "statement_timeout": "30000",
     }
 
 
-def _fake_session(outputs=None, calls=None, error=None):
-    from dify_plugin.entities.workflow_node import NodeResponse
-
-    calls = calls if calls is not None else []
-
-    class Extractor:
-        def invoke(self, parameters, model_config, query, instruction):
-            calls.append((parameters, model_config, query, instruction))
-            if error is not None:
-                raise RuntimeError(error)
-            return NodeResponse(
-                process_data={},
-                inputs={},
-                outputs=outputs if outputs is not None else {},
-            )
-
-    return SimpleNamespace(
-        workflow_node=SimpleNamespace(parameter_extractor=Extractor()),
-    )
-
-
-def _run_tool(tool_cls, tool_module, service, parameters, *, outputs=None, calls=None, error=None):
-    previous = tool_module.service_for
-    try:
-        tool_module.service_for = lambda _tool: service
-        tool = tool_cls.from_credentials({})
-        tool.session = _fake_session(outputs, calls, error)
-        return list(tool.invoke(parameters))[-1].message.json_object
-    finally:
-        tool_module.service_for = previous
-
-
-def test_provider_exposes_exactly_four_tools():
-    text = (ROOT / "provider" / "tcpr.yaml").read_text(encoding="utf-8")
-    tools = [line.strip()[2:] for line in text.splitlines() if line.strip().startswith("- tools/")]
-    assert tools == [
-        "tools/search.yaml",
-        "tools/structure_query.yaml",
-        "tools/build_index.yaml",
-        "tools/build_database.yaml",
-    ]
-
-
-def test_shared_core_is_bundled_only():
-    text = (ROOT / "tcpr_core" / "shared_core.py").read_text(encoding="utf-8")
-    assert "bundled.tcpr" in text
-    assert "src/tcpr" not in text
-    assert "sync_plugin_core" not in text
-
-
-def test_old_public_tool_descriptors_are_absent():
-    tools = ROOT / "tools"
-    for name in ("get_schema", "import_products", "rebuild_index", "tcpr_search"):
-        assert not (tools / f"{name}.py").exists()
-        assert not (tools / f"{name}.yaml").exists()
-
-
-def test_manual_index_tool_yaml_contract():
-    index_yaml = (ROOT / "tools" / "build_index.yaml").read_text(encoding="utf-8")
-    assert "name: index_json" in index_yaml
-    assert "name: file" not in index_yaml
-    assert "name: primary_key" not in index_yaml
-    assert "does not read a data file" in index_yaml
-
-    database_yaml = (ROOT / "tools" / "build_database.yaml").read_text(encoding="utf-8")
-    assert "name: file" in database_yaml
-    assert "name: index_id" in database_yaml
-    assert "name: primary_key" not in database_yaml
-
-
-def test_bundled_runtime_uses_manual_index_definition():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-
-    definition = {
-        "primary_key": "id",
-        "attributes": {
-            "id": {"kind": "string"},
-            "color": {"kind": "enum"},
-        },
-    }
-    source = {
-        "data": json.dumps([{"id": "a", "color": "red"}]).encode(),
-        "filename": "records.json",
-    }
-    service = CoreService(InMemoryKV())
-    index_id = service.build_index(json.dumps(definition))
-    assert "postings" not in service.store.load("index", index_id)
-    database_id = service.build_database(source, index_id)
-    result = service.search(
-        {"hard": [{"attr": "color", "op": "EQ", "value": "red"}]},
-        index_id,
-        database_id,
-    )
+def test_mysql_query_uses_server_read_only_transaction(monkeypatch):
+    connections = install_fake_driver(monkeypatch, "mysql")
+    result = run_remote_query(base_params(
+        "SELECT id FROM products WHERE state = :state",
+        database_type="mysql", port=3306,
+    ))
     assert result["status"] == "OK"
-    assert [row["id"] for row in result["results"]] == ["a"]
+    assert connections[0].cursor_obj.calls[0] == ("START TRANSACTION READ ONLY", None)
+    assert connections[0].connect_kwargs["connect_timeout"] == 10
 
 
-def test_structure_query_is_deterministic_and_search_compatible():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-
-    definition = {
-        "primary_key": "id",
-        "attributes": {
-            "id": {"kind": "string"},
-            "color": {
-                "kind": "enum",
-                "aliases": ["颜色"],
-                "value_aliases": {"红色": "red"},
-            },
-            "count": {"kind": "numeric", "units": {"": 1}},
-        },
-    }
-    service = CoreService(InMemoryKV())
-    index_id = service.build_index(json.dumps(definition, ensure_ascii=False))
-    first = service.structure_query("颜色=红色 且 count>=2", index_id)
-    second = service.structure_query("颜色=红色 且 count>=2", index_id)
-    assert first == second
-    document = json.loads(first["query_json"])
-    assert document == {
-        "hard": [
-            {"attr": "color", "op": "EQ", "value": "red"},
-            {"attr": "count", "op": "GE", "value": 2},
-        ],
-        "soft": [],
-    }
+@pytest.mark.parametrize("sql", [
+    "UPDATE products SET state='x'",
+    "SELECT 1; DELETE FROM products",
+    "WITH changed AS (UPDATE products SET state='x' RETURNING id) SELECT * FROM changed",
+    "SELECT * FROM products FOR UPDATE",
+    "SELECT * INTO OUTFILE '/tmp/x' FROM products",
+    "SELECT /*!40101 SET @x=1*/ 1",
+])
+def test_unsafe_sql_is_rejected_before_connection(monkeypatch, sql):
+    connections = install_fake_driver(monkeypatch)
+    with pytest.raises(RemoteQueryError) as error:
+        run_remote_query(base_params(sql, parameters_json="{}"))
+    assert error.value.code == "SQL_NOT_READ_ONLY"
+    assert connections == []
 
 
-def test_dify_registration_loads_manifest_provider_and_all_tools():
-    from dify_plugin import DifyPluginEnv
-    from dify_plugin.core.plugin_registration import PluginRegistration
-
-    previous = Path.cwd()
-    try:
-        os.chdir(ROOT)
-        registration = PluginRegistration(DifyPluginEnv())
-    finally:
-        os.chdir(previous)
-    assert registration.configuration.version == "0.0.4"
-    assert sorted(registration.tools_mapping["tcpr"][2]) == [
-        "build_database",
-        "build_index",
-        "search",
-        "structure_query",
-    ]
+def test_literals_comments_and_quoted_identifiers_cannot_trigger_policy(monkeypatch):
+    connections = install_fake_driver(monkeypatch)
+    result = run_remote_query(base_params(
+        "SELECT ':not_a_param', \"UPDATE\" FROM products -- DELETE\nWHERE state = :state",
+    ))
+    assert result["status"] == "OK"
+    assert "SELECT ':not_a_param'" in connections[0].cursor_obj.calls[-1][0]
 
 
-def test_dify_workflow_yaml_contract_is_llm_bindable_and_typed():
-    expected = {
-        "search": {"count": "integer", "results": "array", "debug": "object", "error": "object"},
-        "structure_query": {"query": "object", "parse_source": "string", "error": "object"},
-        "build_index": {"parse_source": "string", "index_json": "string", "index_definition": "object", "error": "object"},
-        "build_database": {"error": "object"},
-    }
-    for name, properties in expected.items():
-        document = yaml.safe_load((ROOT / "tools" / f"{name}.yaml").read_text(encoding="utf-8"))
-        for parameter in document["parameters"]:
-            assert parameter["form"] in {"llm", "form"}
-            assert parameter.get("human_description")
-            assert parameter.get("llm_description")
-        if name in {"build_index", "structure_query"}:
-            selector = next(item for item in document["parameters"] if item["name"] == "fallback_model")
-            assert selector["type"] == "model-selector"
-            assert selector["scope"] == "llm" and selector["form"] == "form"
-        output = document["output_schema"]["properties"]
-        for field, field_type in properties.items():
-            assert output[field]["type"] == field_type
-        if name == "search":
-            result_item = output["results"]["items"]
-            assert result_item["type"] == "object"
-            assert {"id", "score", "attributes", "raw", "reasons"} <= set(result_item["properties"])
+def test_parameter_object_is_independent_and_exact():
+    with pytest.raises(RemoteQueryError, match="missing") as missing:
+        run_remote_query(base_params(parameters_json="{}"))
+    assert missing.value.code == "PARAMETERS_INVALID"
+    with pytest.raises(RemoteQueryError, match="unused") as extra:
+        run_remote_query(base_params(parameters_json=json.dumps({"state": "active", "other": 1})))
+    assert extra.value.code == "PARAMETERS_INVALID"
 
 
-def test_dify_tool_failure_payloads_keep_error_objects():
-    from tools.build_database import BuildDatabaseTool
-    from tools.build_index import BuildIndexTool
-    from tools.search import SearchTool
-    from tools.structure_query import StructureQueryTool
-
-    for tool_cls in (BuildIndexTool, BuildDatabaseTool, SearchTool, StructureQueryTool):
-        messages = list(tool_cls.from_credentials({}).invoke({}))
-        payload = messages[-1].message.json_object
-        assert isinstance(payload["error"], dict)
-        assert set(payload["error"]) == {"code", "message"}
+def test_duplicate_result_columns_are_rejected(monkeypatch):
+    install_fake_driver(monkeypatch, columns=("id", "id"))
+    with pytest.raises(RemoteQueryError) as error:
+        run_remote_query(base_params("SELECT id, id FROM products", parameters_json="{}"))
+    assert error.value.code == "DUPLICATE_COLUMN"
 
 
-def test_build_index_hybrid_routing_priority_and_deterministic_path():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-    import tools.build_index as tool_module
-    from tools.build_index import BuildIndexTool
+def test_result_limit_serialization_and_sensitive_redaction(monkeypatch):
+    rows = [(index, "secret-value") for index in range(101)]
+    install_fake_driver(monkeypatch, rows=rows)
+    result = run_remote_query(base_params("SELECT id, password FROM products", parameters_json="{}"))
+    assert result["row_count"] == 100
+    assert result["truncated"] is True
 
-    definition = _hybrid_definition()
-    service = CoreService(InMemoryKV())
-    calls = []
-    valid_requirement = "primary_key: id\nattributes:\n id: string\n color: enum\n ram: numeric units=元:1"
-    manual = json.dumps(definition, ensure_ascii=False)
+    # Mapping rows are redacted by key name during serialization.
+    install_fake_driver(monkeypatch, rows=[{"id": 1, "password": "secret"}])
+    mapped = run_remote_query(base_params("SELECT id, password FROM products", parameters_json="{}"))
+    assert mapped["rows"] == [{"id": 1, "password": "[REDACTED]"}]
 
-    payload = _run_tool(
-        BuildIndexTool,
-        tool_module,
-        service,
-        {
-            "index_json": manual,
-            "index_requirement": "this conflicting requirement must be ignored",
-            "fallback_model": {"provider": "fake", "model": "fake-model"},
-        },
-        outputs={"index_json": manual},
-        calls=calls,
-    )
-    assert payload["status"] == "OK"
-    assert payload["parse_source"] == "manual"
-    assert calls == []
-    assert service.get_index_definition(payload["index_id"])["index_definition"] == definition
 
-    service = CoreService(InMemoryKV())
-    calls = []
-    payload = _run_tool(
-        BuildIndexTool,
-        tool_module,
-        service,
-        {
-            "index_json": "not valid JSON",
-            "index_requirement": valid_requirement,
-            "fallback_model": {"provider": "fake", "model": "fake-model"},
-        },
-        outputs={"index_json": manual},
-        calls=calls,
-    )
+def test_tool_returns_stable_redacted_errors_without_credentials(monkeypatch):
+    if hasattr(RemoteQueryTool, "from_credentials"):
+        tool = RemoteQueryTool.from_credentials({})
+    else:
+        # The SDK compatibility layer deliberately has no fake from_credentials
+        # method when dify_plugin is absent (for example, system Python 3.11).
+        tool = RemoteQueryTool()
+    messages = list(tool.invoke({"sql": "DROP TABLE products", "password": "super-secret"})) if hasattr(tool, "invoke") else list(tool._invoke({"sql": "DROP TABLE products", "password": "super-secret"}))
+    message = messages[-1]
+    payload = message.message.json_object if hasattr(message, "message") else message.value
+    assert payload["status"] == "ERROR"
     assert payload["error"]["code"] == "INVALID_INPUT"
-    assert calls == []
-    assert service.store.active("index") is None
-
-    service = CoreService(InMemoryKV())
-    calls = []
-    payload = _run_tool(
-        BuildIndexTool,
-        tool_module,
-        service,
-        {"index_requirement": valid_requirement, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        outputs={"index_json": manual},
-        calls=calls,
-    )
-    assert payload["status"] == "OK"
-    assert payload["parse_source"] == "deterministic"
-    assert calls == []
+    assert "super-secret" not in json.dumps(payload)
 
 
-def test_build_index_model_fallback_once_and_invalid_output_not_saved():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-    import tools.build_index as tool_module
-    from tools.build_index import BuildIndexTool
-
-    manual = json.dumps(_hybrid_definition(), ensure_ascii=False)
-    service = CoreService(InMemoryKV())
-    calls = []
-    payload = _run_tool(
-        BuildIndexTool,
-        tool_module,
-        service,
-        {
-            "index_requirement": "please infer an index from this prose",
-            "fallback_model": {"provider": "fake", "model": "fake-model", "mode": "chat", "completion_params": {}},
-        },
-        outputs={"index_json": "```json\n" + manual + "\n```"},
-        calls=calls,
-    )
-    assert payload["status"] == "OK" and payload["parse_source"] == "model"
-    assert len(calls) == 1
-    parameters, model_config, query, instruction = calls[0]
-    assert parameters[0].name == "index_json"
-    assert model_config.provider == "fake" and model_config.name == "fake-model"
-    assert query == "please infer an index from this prose"
-    assert "product" not in instruction.lower() and "database" not in instruction.lower()
-
-    service = CoreService(InMemoryKV())
-    calls = []
-    payload = _run_tool(
-        BuildIndexTool,
-        tool_module,
-        service,
-        {
-            "index_requirement": "please infer an index from this prose",
-            "fallback_model": {"provider": "fake", "model": "fake-model"},
-        },
-        outputs={"index_json": "{\"primary_key\":\"id\",\"attributes\":{\"id\":{\"kind\":\"numeric\"}}}"},
-        calls=calls,
-    )
-    assert payload["error"]["code"] == "MODEL_OUTPUT_INVALID"
-    assert len(calls) == 1
-    assert service.store.active("index") is None
+def _tcpr_params(**extra):
+    result = {
+        "database_type": "postgresql",
+        "host": "db.example",
+        "port": 5432,
+        "database": "products",
+        "username": "readonly",
+        "password": "dont-echo-me",
+        "ssl_mode": "verify-full",
+        "table": "商品",
+        "tcpr_schema_json": json.dumps({
+            "primary_key": "编号",
+            "fields": {
+                "编号": {"column": "编号", "kind": "numeric"},
+                "价格": {"column": "价格", "kind": "numeric"},
+                "特性": {"column": "特性", "kind": "multi"},
+            },
+        }, ensure_ascii=False),
+        "tcpr_query_json": json.dumps({
+            "hard": [{"attr": "价格", "op": "GE", "value": 100}],
+            "soft": [{"constraint": {"attr": "特性", "op": "CONTAINS", "value": "wifi6"}, "weight": 2}],
+            "select": ["编号", "价格"],
+            "top_k": 5,
+        }, ensure_ascii=False),
+    }
+    result.update(extra)
+    return result
 
 
-def test_structure_query_hybrid_routing_search_compatibility_and_no_repair_for_json():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-    import tools.structure_query as tool_module
-    from tools.structure_query import StructureQueryTool
-
-    service = CoreService(InMemoryKV())
-    index_id = service.build_index(json.dumps(_hybrid_definition(), ensure_ascii=False))
-    database_id = service.build_database(
-        {"data": json.dumps([
-            {"id": "a", "color": "red", "ram": 16},
-            {"id": "b", "color": "blue", "ram": 8},
-        ]).encode(), "filename": "rows.json"},
-        index_id,
-    )
-
-    calls = []
-    payload = _run_tool(
-        StructureQueryTool,
-        tool_module,
-        service,
-        {"requirement": "颜色=红 且 ram>=16", "index_id": index_id, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        outputs={"query_json": "{}"},
-        calls=calls,
-    )
-    assert payload["status"] == "OK" and payload["parse_source"] == "deterministic"
-    assert calls == []
-
-    model_query = {"hard": [
-        {"attr": "color", "op": "EQ", "value": "red"},
-        {"attr": "ram", "op": "GE", "value": 16},
-    ]}
-    calls = []
-    payload = _run_tool(
-        StructureQueryTool,
-        tool_module,
-        service,
-        {"requirement": "find a red product with at least sixteen ram", "index_id": index_id, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        outputs={"query_json": json.dumps(model_query)},
-        calls=calls,
-    )
-    assert payload["status"] == "OK" and payload["parse_source"] == "model" and len(calls) == 1
-    assert service.search(payload["query_json"], index_id, database_id)["results"][0]["id"] == "a"
-    assert "database rows" not in calls[0][3].lower() and '"id":"a"' not in calls[0][3]
-
-    calls = []
-    payload = _run_tool(
-        StructureQueryTool,
-        tool_module,
-        service,
-        {"requirement": "{bad json", "index_id": index_id, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        outputs={"query_json": json.dumps(model_query)},
-        calls=calls,
-    )
-    assert payload["error"]["code"] == "INVALID_QUERY" and calls == []
+def test_tcpr_compiles_parameterized_hard_soft_and_unicode_identifiers(monkeypatch):
+    connections = install_fake_driver(monkeypatch)
+    result = run_remote_query(_tcpr_params())
+    assert result["status"] == "OK" and result["query_mode"] == "tcpr"
+    sql, args = connections[0].cursor_obj.calls[-1]
+    assert '"商品"' in sql and '"价格"' in sql and '"编号"' in sql
+    assert "SUM(CASE" in sql and "ORDER BY" in sql and "LIMIT %s" in sql
+    assert args[-1] == 6
+    assert "wifi6" in json.dumps(args, ensure_ascii=False)
 
 
-def test_structure_query_invalid_model_output_and_model_errors_are_stable_and_redacted():
-    from tcpr_core.shared_core import CoreService, InMemoryKV
-    import tools.structure_query as tool_module
-    from tools.structure_query import StructureQueryTool
+def test_tcpr_default_never_falls_back_to_sql(monkeypatch):
+    connections = install_fake_driver(monkeypatch)
+    with pytest.raises(RemoteQueryError) as error:
+        run_remote_query({**base_params(), "query_mode": "tcpr", "table": "products", "sql": "SELECT 1"})
+    assert error.value.code == "INVALID_INPUT"
+    assert connections == []
 
-    service = CoreService(InMemoryKV())
-    index_id = service.build_index(json.dumps(_hybrid_definition(), ensure_ascii=False))
-    calls = []
-    payload = _run_tool(
-        StructureQueryTool,
-        tool_module,
-        service,
-        {"requirement": "unstructured natural language", "index_id": index_id, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        outputs={"query_json": json.dumps({"hard": [{"attr": "unknown", "op": "EQ", "value": "x"}]})},
-        calls=calls,
-    )
-    assert payload["error"]["code"] == "MODEL_OUTPUT_INVALID" and len(calls) == 1
 
-    calls = []
-    payload = _run_tool(
-        StructureQueryTool,
-        tool_module,
-        service,
-        {"requirement": "another unstructured requirement", "index_id": index_id, "fallback_model": {"provider": "fake", "model": "fake-model"}},
-        calls=calls,
-        error="SECRET_MODEL_FAILURE",
-    )
-    assert payload["error"]["code"] == "MODEL_INVOCATION_FAILED"
-    assert "SECRET_MODEL_FAILURE" not in payload["error"]["message"]
-    assert len(calls) == 1
+def test_tcpr_unsatisfiable_hard_constraints_do_not_connect(monkeypatch):
+    connections = install_fake_driver(monkeypatch)
+    params = _tcpr_params(tcpr_query_json=json.dumps({
+        "hard": [{"attr": "价格", "op": "EQ", "value": 1}, {"attr": "价格", "op": "EQ", "value": 2}],
+        "select": ["编号"],
+    }, ensure_ascii=False))
+    result = run_remote_query(params)
+    assert result["status"] == "OK" and result["rows"] == []
+    assert connections == []
+
+
+def test_tcpr_mysql_uses_json_contains(monkeypatch):
+    connections = install_fake_driver(monkeypatch, "mysql")
+    result = run_remote_query(_tcpr_params(database_type="mysql", port=3306))
+    assert result["status"] == "OK"
+    assert "JSON_CONTAINS" in connections[0].cursor_obj.calls[-1][0]
