@@ -44,3 +44,10 @@ dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
 ```
 
 隐私说明见 [`PRIVACY.md`](../PRIVACY.md)。
+
+## 0.0.8 破坏性变更
+
+0.0.8 以唯一的 `remote_query` 工具替换旧版本地索引工具（`search`、
+`structure_query`、`build_index`、`build_database`）。已有工作流需要改为配置
+PostgreSQL 或 MySQL 只读连接，并使用默认 TCPR JSON 查询或显式选中的有限
+`raw_sql` 模式；旧版本地存储和索引数据不会迁移。

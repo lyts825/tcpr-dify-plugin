@@ -24,9 +24,13 @@ query timeout, and returns at most 100 rows (hard limits: 30/60 seconds and
 
 Configure a least-privilege read-only database account. TLS certificate
 verification (`verify-full`) is the default. Passwords and connection details
-are used only during the invocation; they are not written to Dify storage,
-returned in errors, sent to an LLM, or logged. Sensitive-looking result fields
-are redacted during serialization.
+are never returned in errors or intentionally logged by the plugin. The
+password is a Dify `secret-input` field; Dify handles any configured-secret
+storage under the policies of the deployment. Query rows return to the calling
+workflow and may be provided to downstream LLM nodes if that workflow is
+configured to do so. Sensitive-looking result fields are redacted during
+serialization, but workflows should select only the data they are allowed to
+use.
 
 ## Tool inputs
 
@@ -52,6 +56,26 @@ etc.); declare exactly one `primary_key` for stable ordering. Example:
 mode. Values are always bound parameters; table/column identifiers come only
 from the form-provided allowlist. TCPR NULL/missing values retain three-valued
 logic, and contradictory hard constraints return without opening a connection.
+
+## Setup and authorization
+
+1. Install the packaged plugin in Dify and add `TCPR Remote Read-only Query`
+   to a workflow or agent.
+2. Create a dedicated database account with access limited to the required
+   database, schema/table, and `SELECT` operation. Do not reuse an owner,
+   administrator, or write-capable account.
+3. In the tool's form fields, set the database type, host, port, database,
+   username, password, and TLS mode. The default `verify-full` requires a
+   certificate that the plugin runtime can validate; use `require` or `disable`
+   only when the deployment's network-security policy explicitly permits it.
+4. For TCPR mode, set `table` and `tcpr_schema_json` as a strict column
+   allowlist with one `primary_key`. Keep `query_mode` set to `tcpr` unless a
+   reviewed workflow explicitly needs bounded `raw_sql`.
+5. Configure downstream workflow nodes so that only authorized recipients can
+   receive database rows. Test with non-production data before production use.
+
+The plugin opens a connection only to the database endpoint configured in the
+form. See [PRIVACY.md](PRIVACY.md) for the full data-flow and retention notice.
 
 ## Remote index recommendations
 
@@ -86,3 +110,12 @@ dify plugin package . -o .\dist\tcpr-0.0.8.difypkg
 ```
 
 See [PRIVACY.md](PRIVACY.md) for data handling.
+
+## Breaking change in 0.0.8
+
+Version 0.0.8 replaces the earlier local-index tools (`search`,
+`structure_query`, `build_index`, and `build_database`) with the single
+`remote_query` tool. Existing workflows must be updated to configure a
+read-only PostgreSQL or MySQL connection and use either TCPR JSON (default) or
+the explicitly selected bounded `raw_sql` mode. No upgrade path preserves the
+removed local storage or index data.

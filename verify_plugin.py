@@ -73,6 +73,8 @@ def verify_runtime_contracts() -> None:
     manifest_doc = yaml.safe_load((ROOT / "manifest.yaml").read_text(encoding="utf-8"))
     assert manifest_doc["version"] == "0.0.8"
     assert manifest_doc["meta"]["version"] == "0.0.8"
+    assert set(manifest_doc["tags"]) == {"business", "utilities"}
+    assert manifest_doc["privacy"] == "./PRIVACY.md"
     permissions = manifest_doc["resource"]["permission"]
     assert permissions["tool"]["enabled"] is True
     assert "node" not in permissions and "storage" not in permissions

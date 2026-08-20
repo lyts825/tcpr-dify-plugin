@@ -8,6 +8,9 @@ label:
 description:
   en_US: Bounded read-only queries against user-configured PostgreSQL and MySQL databases
   zh_Hans: 远程数据库只读查询插件
+tags:
+- business
+- utilities
 created_at: '2026-08-14T00:00:00Z'
 icon: tcpr.svg
 resource:
